@@ -39,8 +39,8 @@ class NotionLifeOS:
         self.scheduler = sched.scheduler(time.time, time.sleep)
 
     def run(self):
-        self.scheduler.enter(60, 1, self.sync_notion_gCal)
         print("[+] Life OS automation is running ...")
+        self.scheduler.enter(60, 1, self.sync_notion_gCal)
         self.scheduler.run()
 
     def init_gCal(self, service_name="task"):
