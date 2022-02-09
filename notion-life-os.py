@@ -114,15 +114,19 @@ class NotionLifeOS:
         pprint(tasks_result)
 
     def get_gCal_tasks(self):
-        result = (
-            self.gCal_service.tasks()
-            .list(tasklist=os.getenv("GCAL_TASKLIST_ID"), showCompleted=False)
-            .execute()
-        )
-        if "items" in result:
-            tasks = {r["notes"]: r for r in result["items"]}
-        else:
-            tasks = {}
+        try:
+            result = (
+                self.gCal_service.tasks()
+                .list(tasklist=os.getenv("GCAL_TASKLIST_ID"), showCompleted=False)
+                .execute()
+            )
+            if "items" in result:
+                tasks = {r["notes"]: r for r in result["items"]}
+            else:
+                tasks = {}
+        except Exception as e:
+            print(e)
+            return {}
 
         print(f"[+] Got all {len(tasks)} tasks")
         return tasks
@@ -137,9 +141,12 @@ class NotionLifeOS:
         tasks = self.get_gCal_tasks()
         print(f"[+] Deleting all {len(tasks)} tasks...")
         for v in tasks.values():
-            self.gCal_service.tasks().delete(
-                tasklist=os.getenv("GCAL_TASKLIST_ID"), task=v["id"]
-            ).execute()
+            try:
+                self.gCal_service.tasks().delete(
+                    tasklist=os.getenv("GCAL_TASKLIST_ID"), task=v["id"]
+                ).execute()
+            except Exception as e:
+                print(e)
 
     def create_gCal_task(self, task_name, action_id, due_date=None):
         if due_date == None:
