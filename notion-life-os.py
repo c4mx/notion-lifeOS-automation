@@ -41,6 +41,7 @@ class NotionLifeOS:
     def run(self):
         self.scheduler.enter(60, 1, self.sync_notion_gCal)
         self.scheduler.run()
+        print("[+] Life OS automation is running ...")
 
     def init_gCal(self, service_name="task"):
         """Shows basic usage of the Google Calendar API.
