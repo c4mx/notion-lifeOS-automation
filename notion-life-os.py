@@ -7,6 +7,7 @@ import datetime
 import os.path
 import os
 from dotenv import load_dotenv
+import sched, time
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -34,7 +35,12 @@ class NotionLifeOS:
         }
         self.last_actions = {}
         self.last_tasks = {}
-        self.sync_notion_gCal()
+        self.today = "1970-01-01"
+        self.scheduler = sched.scheduler(time.time, time.sleep)
+
+    def run(self):
+        self.scheduler.enter(60, 1, self.sync_notion_gCal)
+        self.scheduler.run()
 
     def init_gCal(self, service_name="task"):
         """Shows basic usage of the Google Calendar API.
@@ -201,9 +207,23 @@ class NotionLifeOS:
             body={"completed": False},
         ).execute()
 
+    def is_first_req_today(self):
+        real_today = self.get_today_date()
+        if real_today != self.today:
+            self.today = real_today
+            return True
+        else:
+            return False
+
     def sync_notion_gCal(self):
+        print("[+] Sync notion and gCal ...")
         actions = self.get_notion_actions()
-        tasks = self.get_gCal_tasks()
+
+        if self.is_first_req_today():
+            self.delete_gCal_alltasks()
+            tasks = {}
+        else:
+            tasks = self.get_gCal_tasks()
         a_changed = actions != self.last_actions
         t_changed = tasks != self.last_tasks
 
@@ -211,28 +231,37 @@ class NotionLifeOS:
         # print(t_changed)
         if a_changed:
             # sync from notion to gcal
-
-            to_add = actions.keys() - tasks.keys()
-            for a_id in to_add:
-                task = self.create_gCal_task(actions[a_id]["title"], a_id)
-                tasks[task["notes"]] = task
-
-            to_remove = tasks.keys() - actions.keys()
-            for a_id in to_remove:
-                self.delete_gCal_task(tasks[a_id]["id"])
-
-            self.last_actions = actions
-            self.last_tasks = tasks
+            self.notion2gcal(actions, tasks)
 
         elif t_changed:
             # sync form gcal to notion
-            removed = self.last_tasks.keys() - tasks.keys()
-            print(removed)
-            for t in removed:
-                a_id = self.last_tasks[t]["notes"]
-                self.mark_action_done(a_id)
-                del self.last_actions[a_id]
-            self.last_tasks = tasks
+            self.gcal2notion(tasks)
+
+        self.scheduler.enter(60, 1, self.sync_notion_gCal)
+
+    def notion2gcal(self, actions, tasks):
+        to_add = actions.keys() - tasks.keys()
+        for a_id in to_add:
+            task = self.create_gCal_task(actions[a_id]["title"], a_id)
+            tasks[task["notes"]] = task
+
+        to_remove = tasks.keys() - actions.keys()
+        for a_id in to_remove:
+            self.delete_gCal_task(tasks[a_id]["id"])
+            del tasks[a_id]
+
+        self.last_actions = actions
+        self.last_tasks = tasks
+
+    def gcal2notion(self, tasks):
+        # Only remove operations on gCal tasks
+        removed = self.last_tasks.keys() - tasks.keys()
+        print(removed)
+        for t in removed:
+            a_id = self.last_tasks[t]["notes"]
+            self.mark_action_done(a_id)
+            del self.last_actions[a_id]
+        self.last_tasks = tasks
 
     def now(self):
         return datetime.datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -246,5 +275,6 @@ class NotionLifeOS:
 
 if __name__ == "__main__":
     life_os = NotionLifeOS()
+    life_os.run()
     # tasks = life_os.get_gCal_tasks()
     # actions = life_os.get_notion_todo_actions()
