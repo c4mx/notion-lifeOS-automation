@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from __future__ import print_function
+from asyncio import create_task
 
 import datetime
 import os.path
@@ -26,6 +27,14 @@ load_dotenv(".env")
 class NotionLifeOS:
     def __init__(self):
         self.gCal_service = self.init_gCal()
+        self.headers = {
+            "Authorization": f"Bearer {os.getenv('NOTION_API_KEY')}",
+            "Content-Type": "application/json",
+            "Notion-Version": "2021-08-16",
+        }
+        self.last_actions = {}
+        self.last_tasks = {}
+        self.sync_notion_gCal()
 
     def init_gCal(self, service_name="task"):
         """Shows basic usage of the Google Calendar API.
@@ -98,51 +107,49 @@ class NotionLifeOS:
         pprint(tasks_result)
 
     def get_gCal_tasks(self):
-        print("[+] Getting all gcal tasks...")
-        tasks = (
+        result = (
             self.gCal_service.tasks()
-            .list(tasklist=os.getenv("GCAL_TASKLIST_ID"))
+            .list(tasklist=os.getenv("GCAL_TASKLIST_ID"), showCompleted=False)
             .execute()
         )
-        pprint(tasks)
+        if "items" in result:
+            tasks = {r["notes"]: r for r in result["items"]}
+        else:
+            tasks = {}
+
+        print(f"[+] Got all {len(tasks)} tasks")
         return tasks
 
+    def delete_gCal_task(self, task_id):
+        print(f"[+] Deleting task - {task_id} ...")
+        self.gCal_service.tasks().delete(
+            tasklist=os.getenv("GCAL_TASKLIST_ID"), task=task_id
+        ).execute()
+
     def delete_gCal_alltasks(self):
-        task_list = self.get_gCal_tasks(self.gCal_service)
-        if "items" in task_list:
-            tasks = task_list["items"]
-            print(f"[+] Deleting all {len(tasks)} tasks...")
-            for task in tasks:
-                self.gCal_service.tasks().delete(
-                    tasklist=os.getenv("GCAL_TASKLIST_ID"), task=task["id"]
-                ).execute()
-        else:
-            print("[+] No tasks deleted, task list empty")
+        tasks = self.get_gCal_tasks()
+        print(f"[+] Deleting all {len(tasks)} tasks...")
+        for v in tasks.values():
+            self.gCal_service.tasks().delete(
+                tasklist=os.getenv("GCAL_TASKLIST_ID"), task=v["id"]
+            ).execute()
 
-    def create_gCal_task(self, task_name, due_date=None):
-        if len(task_name) == 0:
-            print("[-] Task name is required")
-            return
-
+    def create_gCal_task(self, task_name, action_id, due_date=None):
         if due_date == None:
             due_date = self.now()
 
-        task = {"title": task_name, "due": due_date}
+        task = {"title": task_name, "due": due_date, "notes": f"{action_id}"}
         task = (
-            self.create_gCal_task.tasks()
+            self.gCal_service.tasks()
             .insert(tasklist=os.getenv("GCAL_TASKLIST_ID"), body=task)
             .execute()
         )
-        print("Task created: %s" % (task))
+        print("[+] Task created: %s" % (task_name))
+        return task
 
-    def get_notion_todo_actions(self):
+    def get_notion_actions(self):
         proxies = {"https": "http://127.0.0.1:8080"}
         api = f"https://api.notion.com/v1/databases/{os.getenv('NOTION_ACTION_DB_ID')}/query"
-        headers = {
-            "Authorization": f"Bearer {os.getenv('NOTION_API_KEY')}",
-            "Content-Type": "application/json",
-            "Notion-Version": "2021-08-16",
-        }
         data = {
             "filter": {
                 "and": [
@@ -156,38 +163,76 @@ class NotionLifeOS:
             }
         }
         # r = requests.post(api, headers=headers, json=data, proxies=proxies, verify=False)
-        r = requests.post(api, headers=headers, json=data)
-
-        return [
-            {
+        r = requests.post(api, headers=self.headers, json=data)
+        actions = {
+            r["id"]: {
                 "title": r["properties"]["⭐Action⭐"]["title"][0]["plain_text"],
                 "completed": r["properties"]["Done"]["checkbox"],
-                "due": self.now(),
+                "do_date": r["properties"]["Do Date"]["date"],
             }
             for r in json.loads(r.text)["results"]
-        ]
+        }
 
-    def notion_to_gCal_sync(self):
-        notion_actions = self.get_notion_todo_actions()
-        gCal_tasks = self.get_gCal_tasks()
-        for action in notion_actions:
-            for task in gCal_tasks:
-                if action["title"] == task["title"]:
-                    pass
+        print(f"[+] Got all {len(actions)} actions from notion")
+        return actions
 
-    def sync_action2task(self):
-        print("[+] Sync from Notion actions to gCal tasks...")
-        actions = self.get_notion_todo_actions()
-        self.delete_gCal_alltasks()
-        for action in actions:
-            self.create_gCal_task(action["title"])
+    def mark_action_done(self, action_id):
+        api = f"https://api.notion.com/v1/pages/{action_id}"
+        r = requests.request(
+            "PATCH",
+            api,
+            headers=self.headers,
+            json={"properties": {"Done": {"checkbox": True}}},
+        )
 
-    def mark_complete(self, task):
+        print(f"[+] Marked action - {action_id} as Done")
+
+    def mark_task_done(self, task_id):
         self.gCal_service.tasks().update(
             tasklist=os.getenv("GCAL_TASKLIST_ID"),
-            task=task["id"],
+            task=task_id,
             body={"completed": self.now()},
         ).execute()
+
+    def mark_task_uncompleted(self, task_id):
+        self.gCal_service.tasks().update(
+            tasklist=os.getenv("GCAL_TASKLIST_ID"),
+            task=task_id,
+            body={"completed": False},
+        ).execute()
+
+    def sync_notion_gCal(self):
+        actions = self.get_notion_actions()
+        tasks = self.get_gCal_tasks()
+        a_changed = actions != self.last_actions
+        t_changed = tasks != self.last_tasks
+
+        # print(a_changed)
+        # print(t_changed)
+        if a_changed:
+            # sync from notion to gcal
+
+            to_add = actions.keys() - tasks.keys()
+            for a_id in to_add:
+                task = self.create_gCal_task(actions[a_id]["title"], a_id)
+                tasks[task["notes"]] = task
+
+            to_remove = tasks.keys() - actions.keys()
+            for a_id in to_remove:
+                self.delete_gCal_task(tasks[a_id]["id"])
+
+            self.last_actions = actions
+            self.last_tasks = tasks
+
+        elif t_changed:
+            # sync form gcal to notion
+            removed = self.last_tasks.keys() - tasks.keys()
+            print(removed)
+            for t in removed:
+                a_id = self.last_tasks[t]["notes"]
+                self.mark_action_done(a_id)
+                del self.last_actions[a_id]
+            self.last_tasks = tasks
 
     def now(self):
         return datetime.datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -201,4 +246,5 @@ class NotionLifeOS:
 
 if __name__ == "__main__":
     life_os = NotionLifeOS()
-    life_os.get_gCal_tasks()
+    # tasks = life_os.get_gCal_tasks()
+    # actions = life_os.get_notion_todo_actions()
