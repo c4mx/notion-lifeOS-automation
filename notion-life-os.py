@@ -177,29 +177,35 @@ class NotionLifeOS:
             }
         }
         # r = requests.post(api, headers=headers, json=data, proxies=proxies, verify=False)
-        r = requests.post(api, headers=self.headers, json=data)
-        actions = {
-            r["id"]: {
-                "title": r["properties"]["⭐Action⭐"]["title"][0]["plain_text"],
-                "completed": r["properties"]["Done"]["checkbox"],
-                "do_date": r["properties"]["Do Date"]["date"],
+        try:
+            r = requests.post(api, headers=self.headers, json=data)
+            actions = {
+                r["id"]: {
+                    "title": r["properties"]["⭐Action⭐"]["title"][0]["plain_text"],
+                    "completed": r["properties"]["Done"]["checkbox"],
+                    "do_date": r["properties"]["Do Date"]["date"],
+                }
+                for r in json.loads(r.text)["results"]
             }
-            for r in json.loads(r.text)["results"]
-        }
-
-        print(f"[+] Got all {len(actions)} actions from notion")
-        return actions
+            print(f"[+] Got all {len(actions)} actions from notion")
+            return actions
+        except Exception as e:
+            print(e)
+            return self.last_actions
 
     def mark_action_done(self, action_id):
         api = f"https://api.notion.com/v1/pages/{action_id}"
-        r = requests.request(
-            "PATCH",
-            api,
-            headers=self.headers,
-            json={"properties": {"Done": {"checkbox": True}}},
-        )
-
-        print(f"[+] Marked action - {action_id} as Done")
+        try:
+            requests.request(
+                "PATCH",
+                api,
+                headers=self.headers,
+                json={"properties": {"Done": {"checkbox": True}}},
+            )
+            print(f"[+] Marked action - {action_id} as Done")
+        except Exception as e:
+            print(e)
+            print(f"[-] Error when marked action - {action_id} as Done")
 
     def mark_task_done(self, task_id):
         self.gCal_service.tasks().update(
@@ -284,5 +290,3 @@ class NotionLifeOS:
 if __name__ == "__main__":
     life_os = NotionLifeOS()
     life_os.run()
-    # tasks = life_os.get_gCal_tasks()
-    # actions = life_os.get_notion_todo_actions()
