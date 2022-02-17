@@ -44,9 +44,6 @@ class NotionLifeOS:
         self.scheduler.run()
 
     def init_gCal(self, service_name="task"):
-        """Shows basic usage of the Google Calendar API.
-        Prints the start and name of the next 10 events on the user's calendar.
-        """
         creds = None
         # The file token.json stores the user's access and refresh tokens, and is
         # created automatically when the authorization flow completes for the first
@@ -56,7 +53,11 @@ class NotionLifeOS:
         # If there are no (valid) credentials available, let the user log in.
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                except Exception as e:
+                    print(e)
+                    exit(-1)
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     "credentials.json", SCOPES
