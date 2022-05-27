@@ -8,6 +8,7 @@ import os.path
 import os
 from dotenv import load_dotenv
 import sched, time
+import logging
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -37,9 +38,19 @@ class NotionLifeOS:
         self.last_tasks = {}
         self.today = "1970-01-01"
         self.scheduler = sched.scheduler(time.time, time.sleep)
+        Log_Format = "%(levelname)s %(asctime)s - %(message)s"
+
+        logging.basicConfig(
+            filename=f"log/{self.get_today_date()}.log",
+            filemode="a",
+            format=Log_Format,
+            level=logging.INFO,
+        )
+
+        self.logger = logging.getLogger()
 
     def run(self):
-        print("[+] Life OS automation is running ...")
+        self.logger.info("[+] Life OS automation is running ...")
         self.scheduler.enter(60, 1, self.sync_notion_gCal)
         self.scheduler.run()
 
@@ -56,7 +67,7 @@ class NotionLifeOS:
                 try:
                     creds.refresh(Request())
                 except Exception as e:
-                    print(e)
+                    self.logger.error(e)
                     exit(-1)
             else:
                 flow = InstalledAppFlow.from_client_secrets_file(
@@ -78,7 +89,7 @@ class NotionLifeOS:
 
     def get_gCal_events(self):
         # Call the Calendar API
-        print("Getting the upcoming 10 events")
+        self.logger.info("Getting the upcoming 10 events")
         events_result = (
             self.gCal_service.events()
             .list(
@@ -92,15 +103,15 @@ class NotionLifeOS:
         )
         events = events_result.get("items", [])
 
-        pprint(events)
+        self.logger.info(pprint(events))
 
         if events:
-            # Prints the start and name of the next 10 events
+            # self.logger.infos the start and name of the next 10 events
             for event in events:
                 start = event["start"].get("dateTime", event["start"].get("date"))
-                print(start, event["summary"])
+                self.logger.info(start, event["summary"])
         else:
-            print("no upcoming events")
+            self.logger.info("no upcoming events")
 
     def create_gCal_event(self, gCal_event):
         event = (
@@ -108,11 +119,11 @@ class NotionLifeOS:
             .insert(calendarId="primary", body=gCal_event)
             .execute()
         )
-        print("Event created: %s" % (event.get("htmlLink")))
+        self.logger.info("Event created: %s" % (event.get("htmlLink")))
 
     def get_gCal_notion_tasklist_id(self):
         tasks_result = self.gCal_service.tasklists().list(maxResults=10).execute()
-        pprint(tasks_result)
+        self.logger.info(tasks_result)
 
     def get_gCal_tasks(self):
         try:
@@ -126,28 +137,28 @@ class NotionLifeOS:
             else:
                 tasks = {}
         except Exception as e:
-            print(e)
+            self.logger.error(e)
             return {}
 
-        print(f"[+] Got all {len(tasks)} tasks")
+        self.logger.info(f"[+] Got all {len(tasks)} tasks")
         return tasks
 
     def delete_gCal_task(self, task_id):
-        print(f"[+] Deleting task - {task_id} ...")
+        self.logger.info(f"[+] Deleting task - {task_id} ...")
         self.gCal_service.tasks().delete(
             tasklist=os.getenv("GCAL_TASKLIST_ID"), task=task_id
         ).execute()
 
     def delete_gCal_alltasks(self):
         tasks = self.get_gCal_tasks()
-        print(f"[+] Deleting all {len(tasks)} tasks...")
+        self.logger.info(f"[+] Deleting all {len(tasks)} tasks...")
         for v in tasks.values():
             try:
                 self.gCal_service.tasks().delete(
                     tasklist=os.getenv("GCAL_TASKLIST_ID"), task=v["id"]
                 ).execute()
             except Exception as e:
-                print(e)
+                self.logger.error(e)
 
     def create_gCal_task(self, task_name, action_id, due_date=None):
         if due_date == None:
@@ -159,7 +170,7 @@ class NotionLifeOS:
             .insert(tasklist=os.getenv("GCAL_TASKLIST_ID"), body=task)
             .execute()
         )
-        print("[+] Task created: %s" % (task_name))
+        self.logger.info("[+] Task created: %s" % (task_name))
         return task
 
     def get_notion_actions(self):
@@ -188,10 +199,10 @@ class NotionLifeOS:
                 }
                 for r in json.loads(r.text)["results"]
             }
-            print(f"[+] Got all {len(actions)} actions from notion")
+            self.logger.info(f"[+] Got all {len(actions)} actions from notion")
             return actions
         except Exception as e:
-            print(e)
+            self.logger.error(e)
             return self.last_actions
 
     def mark_action_done(self, action_id):
@@ -203,10 +214,10 @@ class NotionLifeOS:
                 headers=self.headers,
                 json={"properties": {"Done": {"checkbox": True}}},
             )
-            print(f"[+] Marked action - {action_id} as Done")
+            self.logger.info(f"[+] Marked action - {action_id} as Done")
         except Exception as e:
-            print(e)
-            print(f"[-] Error when marked action - {action_id} as Done")
+            self.logger.error(e)
+            self.logger.error(f"[-] Error when marked action - {action_id} as Done")
 
     def mark_task_done(self, task_id):
         self.gCal_service.tasks().update(
@@ -231,7 +242,11 @@ class NotionLifeOS:
             return False
 
     def sync_notion_gCal(self):
-        print("[+] Sync notion and gCal ...")
+        self.logger.info("[+] Sync notion and gCal ...")
+
+        if datetime.datetime.now().strftime("%H:%M") == "23:59":
+            time.sleep(300)
+
         actions = self.get_notion_actions()
 
         if self.is_first_req_today():
@@ -239,11 +254,12 @@ class NotionLifeOS:
             tasks = {}
         else:
             tasks = self.get_gCal_tasks()
+
         a_changed = actions != self.last_actions
         t_changed = tasks != self.last_tasks
 
-        # print(a_changed)
-        # print(t_changed)
+        # self.logger.info(a_changed)
+        # self.logger.info(t_changed)
         if a_changed:
             # sync from notion to gcal
             self.notion2gcal(actions, tasks)
@@ -271,7 +287,7 @@ class NotionLifeOS:
     def gcal2notion(self, tasks):
         # Only remove operations on gCal tasks
         removed = self.last_tasks.keys() - tasks.keys()
-        print(removed)
+        self.logger.info(removed)
         for t in removed:
             a_id = self.last_tasks[t]["notes"]
             self.mark_action_done(a_id)
