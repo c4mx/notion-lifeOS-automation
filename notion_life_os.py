@@ -132,6 +132,9 @@ class NotionLifeOS:
                 .list(tasklist=os.getenv("GCAL_TASKLIST_ID"), showCompleted=False)
                 .execute()
             )
+
+            self.logger.debug(pprint(result))
+
             if "items" in result:
                 tasks = {r["notes"]: r for r in result["items"]}
             else:
