@@ -165,9 +165,11 @@ class NotionLifeOS:
 
     def create_gCal_task(self, task_name, action_id, due_date=None):
         if due_date == None:
-            due_date = self.now()
+            due_date = self.get_gCal_today_date()
 
         task = {"title": task_name, "due": due_date, "notes": f"{action_id}"}
+        self.logger.debug(pprint(task))
+
         task = (
             self.gCal_service.tasks()
             .insert(tasklist=os.getenv("GCAL_TASKLIST_ID"), body=task)
@@ -304,7 +306,7 @@ class NotionLifeOS:
         return datetime.datetime.today().strftime("%Y-%m-%d")
 
     def get_gCal_today_date(self):
-        return self.get_today_date() + "T00:00:00+0100"
+        return self.get_today_date() + "T00:00:00.000Z"
 
 
 if __name__ == "__main__":
