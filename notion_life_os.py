@@ -37,19 +37,16 @@ class NotionLifeOS:
         self.last_actions = {}
         self.last_tasks = {}
         self.today = self.get_today_date()
-        self.new_logfile(self.today)
         self.scheduler = sched.scheduler(time.time, time.sleep)
 
-    def new_logfile(self, date):
+        # Logging
         Log_Format = "%(levelname)s %(asctime)s - %(message)s"
-
         logging.basicConfig(
-            filename=f"log/{date}.log",
+            filename=f"notion_life_os.log",
             filemode="a",
             format=Log_Format,
             level=logging.INFO,
         )
-
         self.logger = logging.getLogger()
 
     def run(self):
@@ -258,7 +255,6 @@ class NotionLifeOS:
         actions = self.get_notion_actions()
 
         if self.is_first_req_today():
-            self.new_logfile(self.today)
             self.delete_gCal_alltasks()
             tasks = {}
         else:
