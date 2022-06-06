@@ -141,7 +141,7 @@ class NotionLifeOS:
                 tasks = {}
         except Exception as e:
             self.logger.error(e)
-            return {}
+            return self.last_tasks
 
         self.logger.info(f"[+] Got all {len(tasks)} tasks")
         return tasks
